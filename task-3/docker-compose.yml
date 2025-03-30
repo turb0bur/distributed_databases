@@ -1,0 +1,39 @@
+services:
+  mongodb:
+    image: mongo:8.0
+    container_name: ddb-task3-mongodb
+    restart: always
+    ports:
+      - "${MONGO_PORT}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ddb-task3-python-app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+    environment:
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_DATABASE=${MONGO_DATABASE}
+      - MONGO_AUTH_DATABASE=admin
+    command: python -u main.py
+
+volumes:
+  mongodb_data: 
