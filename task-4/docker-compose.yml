@@ -1,0 +1,45 @@
+services:
+  neo4j:
+    container_name: ddb-task4-neo4j
+    image: neo4j:5-community
+    ports:
+      - "${NEO4J_PORT:-7474}:7474"  # HTTP
+      - "${NEO4J_BOLT_PORT:-7687}:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/example123}
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    networks:
+      - neo4j_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  app:
+    container_name: ddb-task4-app
+    build: .
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/example123}
+      - NEO4J_HOST=neo4j
+      - NEO4J_BOLT_PORT=${NEO4J_BOLT_PORT:-7687}
+    volumes:
+      - ./app:/app
+    networks:
+      - neo4j_network
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_plugins:
+
+networks:
+  neo4j_network:
+    driver: bridge 
