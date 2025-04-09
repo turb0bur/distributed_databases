@@ -1,0 +1,99 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: ddb-task8-elasticsearch
+    environment:
+      - node.name=es01
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set}
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - ${ES_PORT}:9200
+    networks:
+      - elastic-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cat/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
+    container_name: ddb-task8-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD:?KIBANA_PASSWORD must be set}
+      - SERVER_NAME=kibana
+    ports:
+      - ${KIBANA_PORT}:5601
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    networks:
+      - elastic-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f -u kibana_system:${KIBANA_PASSWORD} http://localhost:5601/api/status >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ddb-task8-app
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-changeme}
+      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST:-elasticsearch}
+      - ELASTICSEARCH_PORT=${ELASTICSEARCH_PORT:-9200}
+      - ELASTICSEARCH_USER=${ELASTICSEARCH_USER:-elastic}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-changeme}
+      - SEED_ARTICLES=${SEED_ARTICLES:-false}
+      - ARTICLES_NUM_DOCS=${ARTICLES_NUM_DOCS:-100}
+      - ARTICLES_BATCH_SIZE=${ARTICLES_BATCH_SIZE:-10}
+      - SEED_NEWS=${SEED_NEWS:-false}
+      - NEWS_NUM_DOCS=${NEWS_NUM_DOCS:-100000}
+      - NEWS_BATCH_SIZE=${NEWS_BATCH_SIZE:-5000}
+    command: >
+      sh -c "SEED_NEWS=$${SEED_NEWS:-false} SEED_ARTICLES=$${SEED_ARTICLES:-false} python main.py 
+      $${SEED_NEWS:+--seed-news} 
+      $${SEED_NEWS:+--news-num-docs=$${NEWS_NUM_DOCS}} 
+      $${SEED_NEWS:+--news-batch-size=$${NEWS_BATCH_SIZE}}
+      $${SEED_ARTICLES:+--seed-articles} 
+      $${SEED_ARTICLES:+--articles-num-docs=$${ARTICLES_NUM_DOCS}} 
+      $${SEED_ARTICLES:+--articles-batch-size=$${ARTICLES_BATCH_SIZE}}"
+    networks:
+      - elastic-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+
+networks:
+  elastic-net:
+    driver: bridge
+
+volumes:
+  elasticsearch-data:
+  kibana-data: 
