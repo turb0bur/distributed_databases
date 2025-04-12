@@ -467,3 +467,5 @@ LWT operations will only succeed when a majority of replicas can be reached.
 ### Consistency and Transactions
 - [CQL Reference: Consistency](https://docs.datastax.com/en/cql/3.1/cql/cql_reference/consistency_r.html)
 - [Using Lightweight Transactions](https://docs.datastax.com/en/cql-oss/3.3/cql/cql_using/useInsertLWT.html)
+=======
+```
