@@ -233,4 +233,237 @@ Each node uses the Cassandra 5.0 image and is configured with:
 
 Use the following command to verify the cluster is correctly configured:
 
+```bash
+./manage_cluster.sh status
 ```
+
+Or directly:
+
+```bash
+docker exec -it ddb-task7-cassandra-seed nodetool status
+```
+
+This should show all three nodes UP and NORMAL.
+
+### 3. Create Keyspaces with Different Replication Factors
+
+Connect to the cluster using cqlsh:
+
+```bash
+./manage_cluster.sh cqlsh
+```
+
+Create three keyspaces with different replication factors:
+
+```sql
+CREATE KEYSPACE keyspace_rf1 
+WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+CREATE KEYSPACE keyspace_rf2 
+WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 2};
+
+CREATE KEYSPACE keyspace_rf3 
+WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 3};
+```
+
+### 4. Create Tables in Each Keyspace
+
+Create tables in each keyspace:
+
+```sql
+USE keyspace_rf1;
+CREATE TABLE users (
+   user_id UUID PRIMARY KEY,
+   username TEXT,
+   email TEXT,
+   created_at TIMESTAMP
+);
+
+USE keyspace_rf2;
+CREATE TABLE users (
+   user_id UUID PRIMARY KEY,
+   username TEXT,
+   email TEXT,
+   created_at TIMESTAMP
+);
+
+USE keyspace_rf3;
+CREATE TABLE users (
+   user_id UUID PRIMARY KEY,
+   username TEXT,
+   email TEXT,
+   created_at TIMESTAMP
+);
+```
+
+### 5. Write and Read from Different Nodes
+
+Connect to each node and perform read/write operations:
+
+```bash
+# Connect to node 1 (seed)
+docker exec -it ddb-task7-cassandra-seed cqlsh -u cassandra -p cassandra
+
+# Connect to node 2
+docker exec -it ddb-task7-cassandra-node1 cqlsh -u cassandra -p cassandra
+
+# Connect to node 3
+docker exec -it ddb-task7-cassandra-node2 cqlsh -u cassandra -p cassandra
+```
+
+### 6. Insert Data and Check Distribution
+
+Insert data into the tables:
+
+```sql
+USE keyspace_rf1;
+INSERT INTO users (user_id, username, email, created_at) 
+VALUES (uuid(), 'User1', 'user1@example.com', toTimestamp(now()));
+
+USE keyspace_rf2;
+INSERT INTO users (user_id, username, email, created_at) 
+VALUES (uuid(), 'User2', 'user2@example.com', toTimestamp(now()));
+
+USE keyspace_rf3;
+INSERT INTO users (user_id, username, email, created_at) 
+VALUES (uuid(), 'User3', 'user3@example.com', toTimestamp(now()));
+```
+
+Check data distribution with:
+
+```bash
+./manage_cluster.sh status
+```
+
+### 7. Show Data Location for Records
+
+Get endpoints for specific records:
+
+```bash
+# First, get a UUID that exists in your data
+docker exec -it ddb-task7-cassandra-seed cqlsh -u cassandra -p cassandra -e "SELECT * FROM keyspace_rf1.users LIMIT 1;"
+
+# Then use the UUID to find endpoints
+docker exec -it ddb-task7-cassandra-seed nodetool getendpoints keyspace_rf1 users <uuid-from-previous-step>
+```
+
+Repeat this for each keyspace.
+
+### 8. Test Node Disconnection and Consistency Levels
+
+Run the consistency test:
+
+```bash
+docker compose run --rm -it app python /app/test_consistency.py
+```
+
+Or manually:
+
+1. Disconnect one node:
+   ```bash
+   ./manage_cluster.sh disconnect 2
+   ```
+
+2. Test different consistency levels:
+   ```sql
+   -- Try with ONE
+   CONSISTENCY ONE;
+   SELECT * FROM keyspace_rf3.users;
+
+   -- Try with QUORUM
+   CONSISTENCY QUORUM;
+   SELECT * FROM keyspace_rf3.users;
+
+   -- Try with ALL
+   CONSISTENCY ALL;
+   SELECT * FROM keyspace_rf3.users;
+   ```
+
+3. Observe which consistency levels work for each keyspace when a node is down.
+
+### 9. Simulate Network Partition
+
+Run the network partition test script:
+
+```bash
+docker compose run --rm -it app python /app/test_network_partition.py
+```
+
+This script will simulate a network partition by disconnecting nodes and analyzing the behavior.
+
+### 10. Create Conflicts with Consistency Level ONE
+
+With network partition in place, write different values to the same record:
+
+```sql
+-- On node 1
+CONSISTENCY ONE;
+UPDATE keyspace_rf3.users SET email = 'conflict1@example.com' WHERE user_id = <uuid>;
+
+-- On node 2
+CONSISTENCY ONE;
+UPDATE keyspace_rf3.users SET email = 'conflict2@example.com' WHERE user_id = <uuid>;
+
+-- On node 3
+CONSISTENCY ONE;
+UPDATE keyspace_rf3.users SET email = 'conflict3@example.com' WHERE user_id = <uuid>;
+```
+
+### 11. Resolve the Conflict
+
+Reconnect the nodes:
+
+```bash
+./manage_cluster.sh reconnect 2
+```
+
+Check which value was accepted:
+
+```sql
+CONSISTENCY QUORUM;
+SELECT * FROM keyspace_rf3.users WHERE user_id = <uuid>;
+```
+
+Cassandra uses **"Last Write Wins"** based on timestamp for conflict resolution.
+
+### 12. Test Lightweight Transactions
+
+Run the LWT test script:
+
+```bash
+docker compose run --rm -it app python /app/test_lwt.py
+```
+
+Or manually test LWT in a connected cluster:
+
+```sql
+INSERT INTO keyspace_rf3.users (user_id, username, email) 
+VALUES (uuid(), 'LWT Test', 'lwt@example.com') 
+IF NOT EXISTS;
+
+UPDATE keyspace_rf3.users 
+SET email = 'lwt_updated@example.com' 
+WHERE user_id = <uuid> 
+IF username = 'LWT Test';
+```
+
+LWT operations will only succeed when a majority of replicas can be reached.
+
+## References
+
+### Cassandra Cluster Setup
+- [Docker Hub Cassandra Image](https://hub.docker.com/_/cassandra)
+- [Build a Cassandra Cluster on Docker](https://gokhanatil.com/2018/02/build-a-cassandra-cluster-on-docker.html)
+- [Create a Simple Cassandra Cluster with 3 Nodes](https://www.jamescoyle.net/how-to/2448-create-a-simple-cassandra-cluster-with-3-nodes)
+
+### Keyspace and Table Operations
+- [Cassandra Create Keyspace Tutorial](https://www.tutorialspoint.com/cassandra/cassandra_create_keyspace.htm)
+- [CQL Reference: CREATE TABLE](https://docs.datastax.com/en/cql/3.1/cql/cql_reference/create_table_r.html)
+
+### Data Operations
+- [CQL Reference: INSERT](https://docs.datastax.com/en/cql/3.1/cql/cql_reference/insert_r.html)
+- [CQL Reference: SELECT](https://docs.datastax.com/en/cql/3.1/cql/cql_reference/select_r.html)
+
+### Consistency and Transactions
+- [CQL Reference: Consistency](https://docs.datastax.com/en/cql/3.1/cql/cql_reference/consistency_r.html)
+- [Using Lightweight Transactions](https://docs.datastax.com/en/cql-oss/3.3/cql/cql_using/useInsertLWT.html)
