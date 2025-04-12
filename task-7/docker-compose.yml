@@ -1,0 +1,91 @@
+services:
+  cassandra-seed:
+    container_name: ${CASSANDRA_SEED_CONTAINER}
+    image: cassandra:5.0
+    ports:
+      - "${CASSANDRA_PORT}:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=${CASSANDRA_CLUSTER_NAME}
+      - CASSANDRA_SEEDS=${CASSANDRA_SEED_CONTAINER}
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+      - CASSANDRA_USER=${CASSANDRA_USER}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
+    volumes:
+      - cassandra-seed-data:/var/lib/cassandra
+      - ./cassandra-config/cassandra-seed.yaml:/etc/cassandra/cassandra.yaml
+    healthcheck:
+      test: ["CMD", "cqlsh", "-u", "${CASSANDRA_USER}", "-p", "${CASSANDRA_PASSWORD}", "-e", "describe keyspaces"]
+      interval: 30s
+      timeout: 30s
+      retries: 20
+      start_period: 60s
+    networks:
+      - cassandra_network
+
+  cassandra-node1:
+    container_name: ${CASSANDRA_NODE1_CONTAINER}
+    image: cassandra:5.0
+    environment:
+      - CASSANDRA_CLUSTER_NAME=${CASSANDRA_CLUSTER_NAME}
+      - CASSANDRA_SEEDS=${CASSANDRA_SEED_CONTAINER}
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+      - CASSANDRA_USER=${CASSANDRA_USER}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
+    volumes:
+      - cassandra-node1-data:/var/lib/cassandra
+      - ./cassandra-config/cassandra-node1.yaml:/etc/cassandra/cassandra.yaml
+    depends_on:
+      cassandra-seed:
+        condition: service_healthy
+    networks:
+      - cassandra_network
+
+  cassandra-node2:
+    container_name: ${CASSANDRA_NODE2_CONTAINER}
+    image: cassandra:5.0
+    environment:
+      - CASSANDRA_CLUSTER_NAME=${CASSANDRA_CLUSTER_NAME}
+      - CASSANDRA_SEEDS=${CASSANDRA_SEED_CONTAINER}
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+      - CASSANDRA_USER=${CASSANDRA_USER}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
+    volumes:
+      - cassandra-node2-data:/var/lib/cassandra
+      - ./cassandra-config/cassandra-node2.yaml:/etc/cassandra/cassandra.yaml
+    depends_on:
+      cassandra-seed:
+        condition: service_healthy
+    networks:
+      - cassandra_network
+
+  app:
+    container_name: ${CASSANDRA_CLIENT_CONTAINER}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./app:/app
+    environment:
+      - CASSANDRA_HOST=${CASSANDRA_HOST}
+      - CASSANDRA_PORT=${CASSANDRA_PORT}
+      - CASSANDRA_USER=${CASSANDRA_USER}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
+      - CASSANDRA_NODE1=${CASSANDRA_NODE1}
+      - CASSANDRA_NODE2=${CASSANDRA_NODE2}
+      - CASSANDRA_SEED_CONTAINER=${CASSANDRA_SEED_CONTAINER}
+      - CASSANDRA_NODE1_CONTAINER=${CASSANDRA_NODE1_CONTAINER}
+      - CASSANDRA_NODE2_CONTAINER=${CASSANDRA_NODE2_CONTAINER}
+    depends_on:
+      cassandra-seed:
+        condition: service_healthy
+    networks:
+      - cassandra_network
+
+volumes:
+  cassandra-seed-data:
+  cassandra-node1-data:
+  cassandra-node2-data:
+
+networks:
+  cassandra_network:
+    driver: bridge 
